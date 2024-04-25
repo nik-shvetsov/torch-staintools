@@ -10,7 +10,7 @@ from torch_staintools.functional.stain_extraction.utils import percentile
 from torch_staintools.functional.utility.implementation import transpose_trailing, img_from_concentration
 from .base import Normalizer
 from ..cache.tensor_cache import TensorCache
-from typing import Optional, List, Hashable
+from typing import Optional, List, Hashable, Tuple
 
 
 class StainSeparation(Normalizer):
@@ -167,6 +167,81 @@ class StainSeparation(Normalizer):
         c_transposed_src *= c_scale
         # note this is the reconstruction in B x (HW) x C --> need to shuffle the channel first before reshape
         return img_from_concentration(c_transposed_src, self.stain_matrix_target, image.shape, (0, 1))
+
+    def extract_hematoxylin(self, image: torch.Tensor, **stain_mat_kwargs) -> torch.Tensor:
+        """
+        Extract the hematoxylin channel from the image.
+
+        Args:
+            image: Image input must be BxCxHxW cast to torch.float32 and rescaled to [0, 1]
+                Check torchvision.transforms.convert_image_dtype.
+            **stain_mat_kwargs: Extra keyword argument of stain separator.
+
+        Returns:
+            torch.Tensor: Hematoxylin channel output in Bx1xHxW shape and float32 dtype.
+        """
+        get_stain_mat_partial = self.get_stain_matrix.get_partial(luminosity_threshold=self.luminosity_threshold,
+                                                                  num_stains=self.num_stains,
+                                                                  regularizer=self.regularizer,
+                                                                  rng=self.rng,
+                                                                  **stain_mat_kwargs)
+        stain_matrix_source = get_stain_mat_partial(image)
+
+        # Assuming that the stain matrix is ordered such that the first column corresponds to hematoxylin
+        hematoxylin_vector = stain_matrix_source[:, :, 0]
+
+        # Compute the concentration of the stains in the image
+        source_concentration = get_concentrations(image, stain_matrix_source, algorithm=self.concentration_method,
+                                                  regularizer=self.regularizer, rng=self.rng)
+
+        # Extract just the hematoxylin channel
+        hematoxylin_concentration = source_concentration[:, 0, :]
+
+        # Reshape to Bx1xHxW
+        B, HW = hematoxylin_concentration.shape
+        H, W = image.shape[-2:]
+        hematoxylin_channel = hematoxylin_concentration.reshape(B, 1, H, W)
+
+        return hematoxylin_channel
+
+    def extract_stain_channels(self, image: torch.Tensor, **stain_mat_kwargs): -> Tuple[torch.Tensor, torch.Tensor]
+        """
+        Extract the hematoxylin and eosin channels from the image.
+
+        Args:
+            image: Image input must be BxCxHxW cast to torch.float32 and rescaled to [0, 1]
+                Check torchvision.transforms.convert_image_dtype.
+            **stain_mat_kwargs: Extra keyword argument of stain separator.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: Hematoxylin channel and Eosin channel outputs each in Bx1xHxW shape 
+            and float32 dtype.
+        """
+        get_stain_mat_partial = self.get_stain_matrix.get_partial(luminosity_threshold=self.luminosity_threshold,
+                                                                  num_stains=self.num_stains,
+                                                                  regularizer=self.regularizer,
+                                                                  rng=self.rng,
+                                                                  **stain_mat_kwargs)
+        stain_matrix_source = get_stain_mat_partial(image)
+
+        # Assuming the first stain is Hematoxylin and the second is Eosin
+        # The columns of stain matrix correspond to the different stains
+        source_concentration = get_concentrations(image, stain_matrix_source, algorithm=self.concentration_method,
+                                                  regularizer=self.regularizer, rng=self.rng)
+
+        # Extract the stain channels
+        hematoxylin_concentration = source_concentration[:, 0, :]
+        eosin_concentration = source_concentration[:, 1, :]
+
+        # Reshape to Bx1xHxW for both channels
+        B, HW = hematoxylin_concentration.shape
+        H, W = image.shape[-2:]
+        hematoxylin_channel = hematoxylin_concentration.reshape(B, 1, H, W)
+        eosin_channel = eosin_concentration.reshape(B, 1, H, W)
+
+        return hematoxylin_channel, eosin_channel
+
+        
 
     def forward(self, x: torch.Tensor,
                 cache_keys: Optional[List[Hashable]] = None,  **stain_mat_kwargs) -> torch.Tensor:
