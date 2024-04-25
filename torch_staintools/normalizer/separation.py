@@ -204,7 +204,7 @@ class StainSeparation(Normalizer):
 
         return hematoxylin_channel
 
-    def extract_stain_channels(self, image: torch.Tensor, **stain_mat_kwargs): -> Tuple[torch.Tensor, torch.Tensor]
+    def extract_stain_channels(self, image: torch.Tensor, **stain_mat_kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Extract the hematoxylin and eosin channels from the image.
 
