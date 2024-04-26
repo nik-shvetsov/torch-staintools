@@ -1,3 +1,4 @@
+import warnings
 import torch
 from .extractor import BaseExtractor
 from torch_staintools.functional.tissue_mask import get_tissue_mask
@@ -28,6 +29,9 @@ class MacenkoExtractor(BaseExtractor):
         Separate the projected OD vectors on singular vectors (SVD of OD in Macenko paper, which is also the
         eigen vector of the covariance matrix of the OD)
 
+        Reference matrix for stain_mat was adopted from 
+        https://github.com/EIDOSLAB/torchstain/blob/main/torchstain/torch/normalizers/macenko.py (HERef)
+
         Args:
             t_hat: projection of OD on the plane of most significant singular vectors of OD.
             perc:  perc --> min angular term, 100 - perc --> max angular term
@@ -37,6 +41,14 @@ class MacenkoExtractor(BaseExtractor):
             sorted stain matrix in shape of B x num_stains x num_input_color_channel. For H&E cases, the first row
             in dimension of num_stains is H and the second is E (only num_stains=2 supported for now).
         """
+        if t_hat.nelement() == 0:
+            warnings.warn("Empty tensor for t_hat. Returning a reference stain matrix.")
+            return torch.tensor([
+                [0.5626, 0.2159],
+                [0.7201, 0.8012],
+                [0.4062, 0.5581]
+            ]).to(t_hat.device)
+
         phi = torch.atan2(t_hat[:, 1], t_hat[:, 0])
 
         min_phi = percentile(phi, perc, dim=0)
